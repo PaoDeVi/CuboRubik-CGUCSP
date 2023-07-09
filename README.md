@@ -66,3 +66,6 @@ INSTRUCCIONES DE USO PARA INTERACTUAR CON EL CUBO
   Tab: Inicia la animación
 
   Enter: Revierte la animación
+
+VIDEO DEMOSTRATIVO
+https://drive.google.com/file/d/11OdAhWTUgRaqmX4xLtZbmBLHbR--UaOD/view?usp=sharing
