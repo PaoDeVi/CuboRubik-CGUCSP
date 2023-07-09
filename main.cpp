@@ -55,7 +55,6 @@ const char* vertexShaderSource = "#version 330 core\n"
 //"	camUnif = camUnif * vec;"
 "}\0";
 
-
 const char* fragmentShaderSource = "#version 330 core\n"
 "layout(location=0) out vec4 FragColor;\n"
 "uniform vec4 u_color;"
@@ -63,6 +62,44 @@ const char* fragmentShaderSource = "#version 330 core\n"
 "{\n"
 "   FragColor=u_color;\n"
 "}\n\0";
+
+const char* color_vs = "#version 330 core\n"
+"layout(location = 0) in vec3 aPos;\n"
+"layout(location = 1) in vec3 aNormal;\n"
+"out vec3 FragPos;\n"
+"out vec3 Normal;\n"
+"uniform mat4 camMatrix;"
+"void main()\n"
+"{\n"
+"    FragPos = vec3(vec4(aPos.x, aPos.y, aPos.z, 1.0));\n"
+"    Normal = aNormal;\n"
+"    gl_Position = camMatrix * vec4(FragPos, 1.0);\n"
+"}\0";
+
+const char* frag_vs = "#version 330 core\n"
+"out vec4 FragColor;\n"
+"in vec3 Normal;\n"
+"in vec3 FragPos;\n"
+"uniform vec3 lightPos;"
+"uniform vec3 viewPos;"
+"uniform vec3 lightColor;"
+"uniform vec3 objectColor;"
+"void main()\n"
+"{\n"
+"    float ambientStrength = 0.1;\n"
+"    vec3 ambient = ambientStrength * lightColor;\n"
+"    vec3 norm = normalize(Normal);\n"
+"    vec3 lightDir = normalize(lightPos - FragPos);\n"
+"    float diff = max(dot(norm, lightDir), 0.0);\n"
+"    vec3 diffuse = diff * lightColor;\n"
+"    float specularStrength = 0.5;\n"
+"    vec3 viewDir = normalize(viewPos - FragPos);\n"
+"    vec3 reflectDir = reflect(-lightDir, norm);\n"
+"    float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);\n"
+"    vec3 specular = specularStrength * spec * lightColor;\n"
+"    vec3 result = (ambient + diffuse + specular) * objectColor;\n"
+"    FragColor = vec4(result, 1.0);\n"
+"}\0";
 
 
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
@@ -918,21 +955,158 @@ class camada{
 		
 	};
 
-class shader
+class Shader
 {
 public:
-	// Reference ID of the Shader Program
-	GLuint ID;
-	// Constructor that build the Shader Program from 2 different shaders
-	Shader(const char* vertexFile, const char* fragmentFile);
+    unsigned int ID;
+    // constructor generates the shader on the fly
+    // ------------------------------------------------------------------------
+    Shader(const char* vertexPath, const char* fragmentPath)
+    {
+        // 1. retrieve the vertex/fragment source code from filePath
+        std::string vertexCode;
+        std::string fragmentCode;
+        std::ifstream vShaderFile;
+        std::ifstream fShaderFile;
+        // ensure ifstream objects can throw exceptions:
+        vShaderFile.exceptions (std::ifstream::failbit | std::ifstream::badbit);
+        fShaderFile.exceptions (std::ifstream::failbit | std::ifstream::badbit);
+        try 
+        {
+            // open files
+            vShaderFile.open(vertexPath);
+            fShaderFile.open(fragmentPath);
+            std::stringstream vShaderStream, fShaderStream;
+            // read file's buffer contents into streams
+            vShaderStream << vShaderFile.rdbuf();
+            fShaderStream << fShaderFile.rdbuf();		
+            // close file handlers
+            vShaderFile.close();
+            fShaderFile.close();
+            // convert stream into string
+            vertexCode = vShaderStream.str();
+            fragmentCode = fShaderStream.str();			
+        }
+        catch (std::ifstream::failure& e)
+        {
+            std::cout << "ERROR::SHADER::FILE_NOT_SUCCESSFULLY_READ: " << e.what() << std::endl;
+        }
+        const char* vShaderCode = vertexCode.c_str();
+        const char * fShaderCode = fragmentCode.c_str();
+        // 2. compile shaders
+        unsigned int vertex, fragment;
+        // vertex shader
+        vertex = glCreateShader(GL_VERTEX_SHADER);
+        glShaderSource(vertex, 1, &vShaderCode, NULL);
+        glCompileShader(vertex);
+        checkCompileErrors(vertex, "VERTEX");
+        // fragment Shader
+        fragment = glCreateShader(GL_FRAGMENT_SHADER);
+        glShaderSource(fragment, 1, &fShaderCode, NULL);
+        glCompileShader(fragment);
+        checkCompileErrors(fragment, "FRAGMENT");
+        // shader Program
+        ID = glCreateProgram();
+        glAttachShader(ID, vertex);
+        glAttachShader(ID, fragment);
+        glLinkProgram(ID);
+        checkCompileErrors(ID, "PROGRAM");
+        // delete the shaders as they're linked into our program now and no longer necessary
+        glDeleteShader(vertex);
+        glDeleteShader(fragment);
 
-	// Activates the Shader Program
-	void Activate();
-	// Deletes the Shader Program
-	void Delete();
+    }
+    // activate the shader
+    // ------------------------------------------------------------------------
+    void use() const
+    { 
+        glUseProgram(ID); 
+    }
+    // utility uniform functions
+    // ------------------------------------------------------------------------
+    void setBool(const std::string &name, bool value) const
+    {         
+        glUniform1i(glGetUniformLocation(ID, name.c_str()), (int)value); 
+    }
+    // ------------------------------------------------------------------------
+    void setInt(const std::string &name, int value) const
+    { 
+        glUniform1i(glGetUniformLocation(ID, name.c_str()), value); 
+    }
+    // ------------------------------------------------------------------------
+    void setFloat(const std::string &name, float value) const
+    { 
+        glUniform1f(glGetUniformLocation(ID, name.c_str()), value); 
+    }
+    // ------------------------------------------------------------------------
+    void setVec2(const std::string &name, const glm::vec2 &value) const
+    { 
+        glUniform2fv(glGetUniformLocation(ID, name.c_str()), 1, &value[0]); 
+    }
+    void setVec2(const std::string &name, float x, float y) const
+    { 
+        glUniform2f(glGetUniformLocation(ID, name.c_str()), x, y); 
+    }
+    // ------------------------------------------------------------------------
+    void setVec3(const std::string &name, const glm::vec3 &value) const
+    { 
+        glUniform3fv(glGetUniformLocation(ID, name.c_str()), 1, &value[0]); 
+    }
+    void setVec3(const std::string &name, float x, float y, float z) const
+    { 
+        glUniform3f(glGetUniformLocation(ID, name.c_str()), x, y, z); 
+    }
+    // ------------------------------------------------------------------------
+    void setVec4(const std::string &name, const glm::vec4 &value) const
+    { 
+        glUniform4fv(glGetUniformLocation(ID, name.c_str()), 1, &value[0]); 
+    }
+    void setVec4(const std::string &name, float x, float y, float z, float w) const
+    { 
+        glUniform4f(glGetUniformLocation(ID, name.c_str()), x, y, z, w); 
+    }
+    // ------------------------------------------------------------------------
+    void setMat2(const std::string &name, const glm::mat2 &mat) const
+    {
+        glUniformMatrix2fv(glGetUniformLocation(ID, name.c_str()), 1, GL_FALSE, &mat[0][0]);
+    }
+    // ------------------------------------------------------------------------
+    void setMat3(const std::string &name, const glm::mat3 &mat) const
+    {
+        glUniformMatrix3fv(glGetUniformLocation(ID, name.c_str()), 1, GL_FALSE, &mat[0][0]);
+    }
+    // ------------------------------------------------------------------------
+    void setMat4(const std::string &name, const glm::mat4 &mat) const
+    {
+        glUniformMatrix4fv(glGetUniformLocation(ID, name.c_str()), 1, GL_FALSE, &mat[0][0]);
+    }
+
 private:
-	// Checks if the different Shaders have compiled properly
-	void compileErrors(unsigned int shader, const char* type);
+    // utility function for checking shader compilation/linking errors.
+    // ------------------------------------------------------------------------
+    void checkCompileErrors(GLuint shader, std::string type)
+    {
+        GLint success;
+        GLchar infoLog[1024];
+        if (type != "PROGRAM")
+        {
+            glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+            if (!success)
+            {
+                glGetShaderInfoLog(shader, 1024, NULL, infoLog);
+                std::cout << "ERROR::SHADER_COMPILATION_ERROR of type: " << type << "\n" << infoLog << "\n -- --------------------------------------------------- -- " << std::endl;
+            }
+        }
+        else
+        {
+            glGetProgramiv(shader, GL_LINK_STATUS, &success);
+            if (!success)
+            {
+                glGetProgramInfoLog(shader, 1024, NULL, infoLog);
+                std::cout << "ERROR::PROGRAM_LINKING_ERROR of type: " << type << "\n" << infoLog << "\n -- --------------------------------------------------- -- " << std::endl;
+            }
+        }
+    }
 };
 
 GLuint shaderProgram;
@@ -941,7 +1115,8 @@ class Camera
 {
 public:
     // Stores the main vectors of the camera
-    glm::vec3 Camara;
+    glm::vec3 Position;
+	glm::vec3 Camara;
     glm::vec3 Right = glm::vec3(0.0f, 0.0f, -2.0f);
     glm::vec3 Up = glm::vec3(0.0f, 1.0f, 0.0f);
     bool firstClick = true;
@@ -950,7 +1125,8 @@ public:
 
     Camera(glm::vec3 position)
     {
-        Camara = position;
+        Position = position;
+		Camara = position;
     }
 
     void Matrix(float FOVdeg, float nearPlane, float farPlane, const char* uniform)
@@ -1048,6 +1224,9 @@ void setSolve() {
 		return;
 	}*/
 
+// lighting
+glm::vec3 lightPos(1.0f, 1.0f, 1.5f);
+
 int main()
 {
     
@@ -1117,7 +1296,9 @@ int main()
 
 	glEnable(GL_DEPTH_TEST);
 
-    float vertices_flecha[] = { //Vertice inicial
+    Shader lightingShader(color_vs,frag_vs);
+	
+	float vertices_flecha[] = { //Vertice inicial
 		0.125f,  0.125f, 0.0f,//0
 		0.125f, -0.125f,0.0f,//1
         -0.125f, -0.125f, 0.0f,//2
@@ -1144,9 +1325,14 @@ int main()
     glGenVertexArrays(1, &VAO);
     glGenBuffers(27, VBO);
     glGenBuffers(324, EBO);
-    
    
     glBindVertexArray(VAO);
+
+	// normal attribute
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+
 
     int location = glGetUniformLocation(shaderProgram, "u_color");
 	
@@ -1242,11 +1428,23 @@ int main()
 		
         glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		
+		// be sure to activate shader when setting uniforms/drawing objects
+        lightingShader.use();
+        lightingShader.setVec3("objectColor", 0.5f, 0.5f, 0.31f);
+        lightingShader.setVec3("lightColor", 1.0f, 1.0f, 1.0f);
+        lightingShader.setVec3("lightPos", lightPos);
+        lightingShader.setVec3("viewPos", cam.Position);
+
+		// world transformation
+        glm::mat4 model = glm::mat4(1.0f);
+        lightingShader.setMat4("model", model);
+		
         glUseProgram(shaderProgram);
         glBindVertexArray(VAO);
 		glUniform4f(location, 1.0f, 0.5f, 0.2f, 1.0f);	
 
-		glm::mat4 model = glm::mat4(1.0f);
+		//glm::mat4 model = glm::mat4(1.0f);
 		glm::mat4 view = glm::mat4(1.0f);
 		glm::mat4 proj = glm::mat4(1.0f);
 		
@@ -1285,45 +1483,76 @@ int main()
 						cubitos[0].trasladar(0.0012,-0.02,0);
 						cubitos[1].trasladar(0,-0.02,0);
 						cubitos[2].trasladar(-0.0012,-0.02,0);
-						
+						for(int i=0;i<27;i++) {cubitos[i].buffs();}
+						sleep(0.99999);
+					}
+					for (int i = 0; i<4; i++)
+					{	
 						cubitos[3].trasladar(0.0018,-0.02,0);
 						cubitos[4].trasladar(0,-0.02,0);
 						cubitos[5].trasladar(-0.0018,-0.02,0);
-						
+						for(int i=0;i<27;i++) {cubitos[i].buffs();}
+						sleep(0.99999);
+					}
+					for (int i = 0; i<4; i++)
+					{
 						cubitos[6].trasladar(0.0009,-0.01,0);
 						cubitos[7].trasladar(0,-0.01,0);
 						cubitos[8].trasladar(-0.0009,-0.01,0);
-						///
-						
-						///
+						for(int i=0;i<27;i++) {cubitos[i].buffs();}
+						sleep(0.99999);
+					}
+					for (int i = 0; i<4; i++)
+					{
 						cubitos[9].trasladar(0.0012,-0.02,0);
 						cubitos[10].trasladar(0,-0.02,0);
 						cubitos[11].trasladar(-0.0012,-0.02,0);
-						
+						for(int i=0;i<27;i++) {cubitos[i].buffs();}
+						sleep(0.99999);
+					}
+					for (int i = 0; i<4; i++)
+					{
 						cubitos[12].trasladar(0.0018,-0.02,0);
 						cubitos[13].trasladar(0,-0.02,0);
 						cubitos[14].trasladar(-0.0018,-0.02,0);
-						
+						for(int i=0;i<27;i++) {cubitos[i].buffs();}
+						sleep(0.99999);
+					}
+					for (int i = 0; i<4; i++)
+					{
 						cubitos[15].trasladar(0.0009,-0.01,0);
 						cubitos[16].trasladar(0,-0.01,0);
 						cubitos[17].trasladar(-0.0009,-0.01,0);
-						
+						for(int i=0;i<27;i++) {cubitos[i].buffs();}
+						sleep(0.99999);
+					}
+					for (int i = 0; i<4; i++)
+					{
 						cubitos[24].trasladar(0.0009,-0.01,0);
 						cubitos[25].trasladar(0,-0.01,0);
 						cubitos[26].trasladar(-0.0009,-0.01,0);
-						
+						for(int i=0;i<27;i++) {cubitos[i].buffs();}
+						sleep(0.99999);
+					}
+					for (int i = 0; i<4; i++)
+					{
 						cubitos[21].trasladar(0.00020,-0.02,0);
 						cubitos[22].trasladar(0,-0.02,0);
 						cubitos[23].trasladar(-0.00020,-0.02,0);
-						
+						for(int i=0;i<27;i++) {cubitos[i].buffs();}
+						sleep(0.99999);
+					}
+					for (int i = 0; i<4; i++)
+					{						
 						cubitos[18].trasladar(0.0012,-0.02,0);
 						cubitos[19].trasladar(0,-0.02,0);
 						cubitos[20].trasladar(-0.00012,-0.02,0);
-						
 						for(int i=0;i<27;i++) {cubitos[i].buffs();}
-						
+						sleep(0.99999);
 					}
-					//sleep(1);
+					
+					//for(int i=0;i<27;i++) {cubitos[i].buffs();}
+					//sleep(2);
 					
 					//DESLIZAR DESPUES DE CAER
 					for (int i = 0; i<2; i++)
@@ -1365,19 +1594,33 @@ int main()
 						cubitos[11].trasladar(-0.06,0,-0.05);
 					}
 					//cubitos[24].rotarx(90);
+						sleep(0.9999999);
 						cubitos[1].rotarx(3.75);
+						sleep(0.9999999);
 						cubitos[2].rotarx(3.75);
+						sleep(0.9999999);
 						cubitos[3].rotary(3.75);
+						sleep(0.9999999);
 						cubitos[4].rotary(3.75);
+						sleep(0.9999999);
 						cubitos[5].rotarx(3.75);
+						sleep(0.9999999);
 						cubitos[6].rotarx(3.75);
+						sleep(0.9999999);
 						cubitos[7].rotarx(3.75);
+						sleep(0.9999999);
 						cubitos[8].rotary(3.75);
+						sleep(0.9999999);
 						cubitos[9].rotary(3.75);
+						sleep(0.9999999);
 						cubitos[10].rotarx(3.75);
+						sleep(0.9999999);
 						cubitos[11].rotarx(3.75);
+						sleep(0.9999999);
 						cubitos[12].rotarx(3.75);
+						sleep(0.9999999);
 						cubitos[14].rotarz(3.75);
+						sleep(0.9999999);
 						cubitos[13].rotarz(3.75);
 						
 					//cubitos[24].rotarx(0.002);
