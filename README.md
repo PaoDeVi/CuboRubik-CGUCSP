@@ -1,4 +1,8 @@
 # CuboRubik-CGUCSP
+ALUMNOS:
+- Fabián Concha Sifuentes
+- Paolo Delgado Vidal
+
 Presentación final del proyecto sobre el cubo rubik, el cuál presenta las siguientes funcionalidades disponibles:
 
 
